@@ -93,7 +93,7 @@ resource "aws_iam_role" "step_role-v2" {
 # Step Function
 resource "aws_sfn_state_machine" "step" {
   name     = "FluxoCSV"
-  role_arn = aws_iam_role.step_role.arn
+  role_arn = aws_iam_role.step_role_v2.arn
 
   definition = jsonencode({
     StartAt = "ProcessarArquivo",
