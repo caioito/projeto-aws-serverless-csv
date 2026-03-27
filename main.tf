@@ -31,7 +31,7 @@ resource "aws_dynamodb_table" "tabela" {
 
 # IAM Lambda
 resource "aws_iam_role" "lambda_role" {
-  name = "lambda-role-csv"
+  name = "lambda-role-csv-v2"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
@@ -77,7 +77,7 @@ resource "aws_lambda_function" "lambda" {
 }
 
 # IAM Step Function
-resource "aws_iam_role" "step_role" {
+resource "aws_iam_role" "step_role-v2" {
   name = "step-role-csv"
 
   assume_role_policy = jsonencode({
