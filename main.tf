@@ -30,7 +30,7 @@ resource "aws_dynamodb_table" "tabela" {
 
 # ---------------- IAM Lambda ----------------
 resource "aws_iam_role" "lambda_role" {
-  name = "lambda-role-csv-v2"
+  name = "lambda-role-csv-${random_id.rand.hex}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
@@ -66,7 +66,7 @@ data "archive_file" "lambda_zip" {
 
 # ---------------- Lambda ----------------
 resource "aws_lambda_function" "lambda" {
-  function_name = "lambda-processar-csv"
+  function_name = "lambda-processar-csv-${random_id.rand.hex}"
   role          = aws_iam_role.lambda_role.arn
   handler       = "lambda_function.lambda_handler"
   runtime       = "python3.11"
@@ -77,7 +77,7 @@ resource "aws_lambda_function" "lambda" {
 
 # ---------------- IAM Step Function ----------------
 resource "aws_iam_role" "step_role" {
-  name = "step-role-csv-v2"
+  name = "step-role-csv-${random_id.rand.hex}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
@@ -105,7 +105,7 @@ resource "aws_iam_role_policy" "step_lambda_policy" {
 
 # ---------------- Step Function ----------------
 resource "aws_sfn_state_machine" "step" {
-  name     = "FluxoCSV"
+  name     = "FluxoCSV-${random_id.rand.hex}"
   role_arn = aws_iam_role.step_role.arn
 
   definition = jsonencode({
@@ -134,19 +134,15 @@ resource "aws_sfn_state_machine" "step" {
           }
         ]
       },
-      Sucesso = {
-        Type = "Succeed"
-      },
-      Erro = {
-        Type = "Fail"
-      }
+      Sucesso = { Type = "Succeed" },
+      Erro    = { Type = "Fail" }
     }
   })
 }
 
 # ---------------- EventBridge ----------------
 resource "aws_cloudwatch_event_rule" "s3_event" {
-  name = "regra-s3"
+  name = "regra-s3-${random_id.rand.hex}"
 
   event_pattern = jsonencode({
     source = ["aws.s3"],
@@ -164,6 +160,25 @@ resource "aws_cloudwatch_event_target" "step_target" {
   target_id = "StepFunction"
   arn       = aws_sfn_state_machine.step.arn
   role_arn  = aws_iam_role.step_role.arn
+
+  # 🔥 TRANSFORMA EVENTO DO S3 → FORMATO DA SUA LAMBDA
+  input_transformer {
+    input_paths = {
+      bucket = "$.detail.bucket.name"
+      key    = "$.detail.object.key"
+    }
+
+    input_template = <<EOF
+{
+  "bucket": {
+    "name": "<bucket>"
+  },
+  "object": {
+    "key": "<key>"
+  }
+}
+EOF
+  }
 }
 
 # Permissão EventBridge iniciar Step Function
