@@ -6,18 +6,17 @@ resource "random_id" "rand" {
   byte_length = 4
 }
 
-# S3
+# ---------------- S3 ----------------
 resource "aws_s3_bucket" "bucket" {
   bucket = "projeto-csv-${random_id.rand.hex}"
 }
 
-# Ativar EventBridge no S3
 resource "aws_s3_bucket_notification" "eventbridge" {
-  bucket = aws_s3_bucket.bucket.id
+  bucket      = aws_s3_bucket.bucket.id
   eventbridge = true
 }
 
-# DynamoDB
+# ---------------- DynamoDB ----------------
 resource "aws_dynamodb_table" "tabela" {
   name         = "ControleProcessamentoV2"
   billing_mode = "PAY_PER_REQUEST"
@@ -29,7 +28,7 @@ resource "aws_dynamodb_table" "tabela" {
   }
 }
 
-# IAM Lambda
+# ---------------- IAM Lambda ----------------
 resource "aws_iam_role" "lambda_role" {
   name = "lambda-role-csv-v2"
 
@@ -58,14 +57,14 @@ resource "aws_iam_role_policy_attachment" "lambda_dynamo" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
 }
 
-# ZIP Lambda
+# ---------------- ZIP Lambda ----------------
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_dir  = "${path.module}/lambda"
   output_path = "${path.module}/lambda.zip"
 }
 
-# Lambda
+# ---------------- Lambda ----------------
 resource "aws_lambda_function" "lambda" {
   function_name = "lambda-processar-csv"
   role          = aws_iam_role.lambda_role.arn
@@ -76,9 +75,9 @@ resource "aws_lambda_function" "lambda" {
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 }
 
-# IAM Step Function
-resource "aws_iam_role" "step_role-v2" {
-  name = "step-role-csv"
+# ---------------- IAM Step Function ----------------
+resource "aws_iam_role" "step_role" {
+  name = "step-role-csv-v2"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
@@ -90,10 +89,24 @@ resource "aws_iam_role" "step_role-v2" {
   })
 }
 
-# Step Function
+# Permissão para Step chamar Lambda
+resource "aws_iam_role_policy" "step_lambda_policy" {
+  role = aws_iam_role.step_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Action = "lambda:InvokeFunction",
+      Resource = aws_lambda_function.lambda.arn
+    }]
+  })
+}
+
+# ---------------- Step Function ----------------
 resource "aws_sfn_state_machine" "step" {
   name     = "FluxoCSV"
-  role_arn = aws_iam_role.step_role_v2.arn
+  role_arn = aws_iam_role.step_role.arn
 
   definition = jsonencode({
     StartAt = "ProcessarArquivo",
@@ -107,29 +120,33 @@ resource "aws_sfn_state_machine" "step" {
         Type = "Choice",
         Choices = [
           {
-            Variable = "$.status",
+            Variable     = "$.status",
             StringEquals = "PROCESSADO",
-            Next = "Sucesso"
+            Next         = "Sucesso"
           },
           {
-            Variable = "$.status",
+            Variable     = "$.status",
             StringEquals = "PENDENTE_CORRECAO",
-            Next = "Erro"
+            Next         = "Erro"
           }
         ]
       },
-      Sucesso = { Type = "Succeed" },
-      Erro    = { Type = "Fail" }
+      Sucesso = {
+        Type = "Succeed"
+      },
+      Erro = {
+        Type = "Fail"
+      }
     }
   })
 }
 
-# EventBridge
+# ---------------- EventBridge ----------------
 resource "aws_cloudwatch_event_rule" "s3_event" {
   name = "regra-s3"
 
   event_pattern = jsonencode({
-    source = ["aws.s3"],
+    source      = ["aws.s3"],
     detail-type = ["Object Created"]
   })
 }
@@ -141,6 +158,7 @@ resource "aws_cloudwatch_event_target" "step_target" {
   role_arn  = aws_iam_role.step_role.arn
 }
 
+# Permissão EventBridge iniciar Step Function
 resource "aws_iam_role_policy" "eventbridge_policy" {
   role = aws_iam_role.step_role.id
 
