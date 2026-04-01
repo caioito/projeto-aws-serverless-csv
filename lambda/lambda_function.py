@@ -10,9 +10,15 @@ tabela = dynamodb.Table('ControleProcessamentoV2')
 def lambda_handler(event, context):
     print("Evento recebido:", event)
 
-    bucket = event["detail"]["bucket"]["name"]
-    arquivo = event["detail"]["object"]["key"]
+    
+    if "detail" in event:
+        bucket = event["detail"]["bucket"]["name"]
+        arquivo = event["detail"]["object"]["key"]
+    else:
+        bucket = event["bucket"]["name"]
+        arquivo = event["object"]["key"]
 
+    # valida extensão
     if not arquivo.lower().endswith(".csv"):
         return {"status": "ERRO_ARQUIVO"}
 
@@ -56,7 +62,7 @@ def lambda_handler(event, context):
         except Exception as e:
             houve_erro = True
 
-            id_raw = linha.get('idRegistro', '').strip()
+            id_raw = str(linha.get('idRegistro', '')).strip()
 
             tabela.put_item(
                 Item={
