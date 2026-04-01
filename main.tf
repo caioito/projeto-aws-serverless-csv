@@ -2,13 +2,9 @@ provider "aws" {
   region = "us-east-1"
 }
 
-resource "random_id" "rand" {
-  byte_length = 4
-}
-
 # ---------------- S3 ----------------
 resource "aws_s3_bucket" "bucket" {
-  bucket = "projeto-csv-${random_id.rand.hex}"
+  bucket = "projeto-csv-caio"
 }
 
 resource "aws_s3_bucket_notification" "eventbridge" {
@@ -30,7 +26,7 @@ resource "aws_dynamodb_table" "tabela" {
 
 # ---------------- IAM Lambda ----------------
 resource "aws_iam_role" "lambda_role" {
-  name = "lambda-role-csv-${random_id.rand.hex}"
+  name = "lambda-role-csv"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
@@ -66,7 +62,7 @@ data "archive_file" "lambda_zip" {
 
 # ---------------- Lambda ----------------
 resource "aws_lambda_function" "lambda" {
-  function_name = "lambda-processar-csv-${random_id.rand.hex}"
+  function_name = "lambda-processar-csv"
   role          = aws_iam_role.lambda_role.arn
   handler       = "lambda_function.lambda_handler"
   runtime       = "python3.11"
@@ -77,7 +73,7 @@ resource "aws_lambda_function" "lambda" {
 
 # ---------------- IAM Step Function ----------------
 resource "aws_iam_role" "step_role" {
-  name = "step-role-csv-${random_id.rand.hex}"
+  name = "step-role-csv"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
@@ -89,7 +85,7 @@ resource "aws_iam_role" "step_role" {
   })
 }
 
-# Permissão para Step chamar Lambda
+# Step → Lambda
 resource "aws_iam_role_policy" "step_lambda_policy" {
   role = aws_iam_role.step_role.id
 
@@ -103,9 +99,23 @@ resource "aws_iam_role_policy" "step_lambda_policy" {
   })
 }
 
+# EventBridge → Step Function
+resource "aws_iam_role_policy" "eventbridge_policy" {
+  role = aws_iam_role.step_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Action = "states:StartExecution",
+      Resource = aws_sfn_state_machine.step.arn
+    }]
+  })
+}
+
 # ---------------- Step Function ----------------
 resource "aws_sfn_state_machine" "step" {
-  name     = "FluxoCSV-${random_id.rand.hex}"
+  name     = "FluxoCSV"
   role_arn = aws_iam_role.step_role.arn
 
   definition = jsonencode({
@@ -115,7 +125,11 @@ resource "aws_sfn_state_machine" "step" {
         Type     = "Task",
         Resource = "arn:aws:states:::lambda:invoke",
         Parameters = {
-          FunctionName = aws_lambda_function.lambda.arn
+          FunctionName = aws_lambda_function.lambda.arn,
+          Payload = {
+            "bucket.$" = "$.bucket",
+            "object.$" = "$.object"
+          }
         },
         Next = "VerificarStatus"
       },
@@ -123,12 +137,12 @@ resource "aws_sfn_state_machine" "step" {
         Type = "Choice",
         Choices = [
           {
-            Variable     = "$.status",
+            Variable     = "$.Payload.status",
             StringEquals = "PROCESSADO",
             Next         = "Sucesso"
           },
           {
-            Variable     = "$.status",
+            Variable     = "$.Payload.status",
             StringEquals = "PENDENTE_CORRECAO",
             Next         = "Erro"
           }
@@ -142,14 +156,14 @@ resource "aws_sfn_state_machine" "step" {
 
 # ---------------- EventBridge ----------------
 resource "aws_cloudwatch_event_rule" "s3_event" {
-  name = "regra-s3-${random_id.rand.hex}"
+  name = "regra-s3"
 
   event_pattern = jsonencode({
     source = ["aws.s3"],
     detail-type = ["Object Created"],
     detail = {
       bucket = {
-        name = [aws_s3_bucket.bucket.bucket]
+        name = ["projeto-csv-caio"]
       }
     }
   })
@@ -161,36 +175,17 @@ resource "aws_cloudwatch_event_target" "step_target" {
   arn       = aws_sfn_state_machine.step.arn
   role_arn  = aws_iam_role.step_role.arn
 
-  # 🔥 TRANSFORMA EVENTO DO S3 → FORMATO DA SUA LAMBDA
   input_transformer {
     input_paths = {
-      bucket = "$.detail.bucket.name"
-      key    = "$.detail.object.key"
+      bucket = "$.detail.bucket"
+      object = "$.detail.object"
     }
 
     input_template = <<EOF
 {
-  "bucket": {
-    "name": "<bucket>"
-  },
-  "object": {
-    "key": "<key>"
-  }
+  "bucket": <bucket>,
+  "object": <object>
 }
 EOF
   }
-}
-
-# Permissão EventBridge iniciar Step Function
-resource "aws_iam_role_policy" "eventbridge_policy" {
-  role = aws_iam_role.step_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect = "Allow",
-      Action = "states:StartExecution",
-      Resource = aws_sfn_state_machine.step.arn
-    }]
-  })
 }
