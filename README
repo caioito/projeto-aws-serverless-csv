@@ -1,0 +1,33 @@
+# 🚀 Projeto AWS Serverless - Processamento de CSV
+
+## 📌 Descrição
+Este projeto implementa uma arquitetura serverless na AWS para processamento automático de arquivos CSV enviados para um bucket S3.
+
+## 🧩 Arquitetura
+
+S3 → EventBridge → Step Functions → Lambda → DynamoDB
+
+## 🔧 Tecnologias utilizadas
+
+- AWS S3
+- AWS EventBridge
+- AWS Step Functions
+- AWS Lambda (Python)
+- AWS DynamoDB
+- Terraform
+
+## ⚙️ Funcionamento
+
+1. Upload de um arquivo CSV no S3
+2. EventBridge captura o evento
+3. Step Function inicia o fluxo
+4. Lambda processa o CSV
+5. Dados válidos são armazenados no DynamoDB
+6. Dados inválidos são marcados como PENDENTE_CORRECAO
+
+## 📁 Estrutura
+.
+├── main.tf
+├── lambda/
+│ └── lambda_function.py
+├── README.md
