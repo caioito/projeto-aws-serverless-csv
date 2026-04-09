@@ -2,22 +2,58 @@ name: Deploy AWS
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "apply ou destroy"
+        required: false
+        default: "apply"
 
 jobs:
   terraform:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
-      - uses: hashicorp/setup-terraform@v2
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - uses: aws-actions/configure-aws-credentials@v2
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - run: terraform init
-      - run: terraform validate
-      - run: terraform apply -auto-approve
+      - name: Terraform Init
+        run: terraform init
+        working-directory: infra
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: infra
+
+      - name: Terraform Plan
+        if: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == '' }}
+        run: terraform plan -var-file="envs/dev.tfvars"
+        working-directory: infra
+
+      - name: Terraform Apply
+        if: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == '' }}
+        run: terraform apply -auto-approve -var-file="envs/dev.tfvars"
+        working-directory: infra
+
+      #  limpa bucket 
+      - name: Empty S3 bucket (fallback)
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: |
+          aws s3 rm s3://projeto-processamento-arquivos --recursive || true
+
+      - name: Terraform Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: terraform destroy -auto-approve -refresh=false -var-file="envs/dev.tfvars"
+        working-directory: infra

@@ -1,16 +1,17 @@
 provider "aws" {
-  region = var.aws_region
+  region = "us-east-1"
 }
 
-# ========================
-# S3
-# ========================
+# ---------------- S3 ----------------
 resource "aws_s3_bucket" "bucket" {
-  bucket = "projeto-csv-${var.environment}"
+  bucket = "projeto-processamento-arquivos"
 
-  lifecycle {
-    prevent_destroy = var.destroyer == false
-  }
+  force_destroy = true
+
+  depends_on = [
+    aws_cloudwatch_event_rule.s3_event,
+    aws_cloudwatch_event_target.step_target
+  ]
 }
 
 resource "aws_s3_bucket_notification" "eventbridge" {
@@ -18,11 +19,9 @@ resource "aws_s3_bucket_notification" "eventbridge" {
   eventbridge = true
 }
 
-# ========================
-# DYNAMODB
-# ========================
+# ---------------- DynamoDB ----------------
 resource "aws_dynamodb_table" "tabela" {
-  name         = "ControleProcessamento-${var.environment}"
+  name         = "ControleProcessamentoV2"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "idRegistro"
 
@@ -30,17 +29,11 @@ resource "aws_dynamodb_table" "tabela" {
     name = "idRegistro"
     type = "N"
   }
-
-  lifecycle {
-    prevent_destroy = var.destroyer == false
-  }
 }
 
-# ========================
-# IAM LAMBDA
-# ========================
+# ---------------- IAM Lambda ----------------
 resource "aws_iam_role" "lambda_role" {
-  name = "lambda-role-${var.environment}"
+  name = "lambda-role-csv"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
@@ -59,7 +52,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 
 resource "aws_iam_role_policy_attachment" "lambda_s3" {
   role       = aws_iam_role.lambda_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_dynamo" {
@@ -67,33 +60,27 @@ resource "aws_iam_role_policy_attachment" "lambda_dynamo" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
 }
 
-# ========================
-# LAMBDA ZIP
-# ========================
+# ---------------- ZIP Lambda ----------------
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../lambda"
   output_path = "${path.module}/lambda.zip"
 }
 
-# ========================
-# LAMBDA
-# ========================
+# ---------------- Lambda ----------------
 resource "aws_lambda_function" "lambda" {
-  function_name = "lambda-processar-${var.environment}"
+  function_name = "lambda-processar-csv"
   role          = aws_iam_role.lambda_role.arn
   handler       = "lambda_function.lambda_handler"
-  runtime       = "python3.11"
+  runtime       = "python3.10"
 
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 }
 
-# ========================
-# IAM STEP FUNCTION
-# ========================
+# ---------------- IAM Step Function ----------------
 resource "aws_iam_role" "step_role" {
-  name = "step-role-${var.environment}"
+  name = "step-role-csv"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
@@ -105,7 +92,8 @@ resource "aws_iam_role" "step_role" {
   })
 }
 
-resource "aws_iam_role_policy" "step_lambda" {
+# Permissão para Step chamar Lambda
+resource "aws_iam_role_policy" "step_lambda_policy" {
   role = aws_iam_role.step_role.id
 
   policy = jsonencode({
@@ -118,6 +106,7 @@ resource "aws_iam_role_policy" "step_lambda" {
   })
 }
 
+# Permissão EventBridge iniciar Step Function
 resource "aws_iam_role_policy" "eventbridge_policy" {
   role = aws_iam_role.step_role.id
 
@@ -131,11 +120,9 @@ resource "aws_iam_role_policy" "eventbridge_policy" {
   })
 }
 
-# ========================
-# STEP FUNCTION
-# ========================
+# ---------------- Step Function ----------------
 resource "aws_sfn_state_machine" "step" {
-  name     = "FluxoCSV-${var.environment}"
+  name     = "FluxoCSV"
   role_arn = aws_iam_role.step_role.arn
 
   definition = jsonencode({
@@ -161,17 +148,19 @@ resource "aws_sfn_state_machine" "step" {
           }
         ]
       },
-      Sucesso = { Type = "Succeed" },
-      Erro    = { Type = "Fail" }
+      Sucesso = {
+        Type = "Succeed"
+      },
+      Erro = {
+        Type = "Fail"
+      }
     }
   })
 }
 
-# ========================
-# EVENTBRIDGE
-# ========================
+# ---------------- EventBridge ----------------
 resource "aws_cloudwatch_event_rule" "s3_event" {
-  name = "regra-upload-${var.environment}"
+  name = "regra-upload-s3-stepfunction"
 
   event_pattern = jsonencode({
     source      = ["aws.s3"],
