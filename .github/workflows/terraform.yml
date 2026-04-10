@@ -15,6 +15,10 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: infra
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -29,25 +33,29 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      # 🧹 evita bug de cache
+      - name: Clean Terraform
+        run: rm -rf .terraform
+
       - name: Terraform Init
-        run: terraform init
-        working-directory: infra
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=state/terraform.tfstate" \
+            -backend-config="region=us-east-1"
 
       - name: Terraform Validate
         run: terraform validate
-        working-directory: infra
 
       - name: Terraform Plan
         if: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == '' }}
         run: terraform plan -var-file="envs/dev.tfvars"
-        working-directory: infra
 
       - name: Terraform Apply
         if: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == '' }}
         run: terraform apply -auto-approve -var-file="envs/dev.tfvars"
-        working-directory: infra
 
-      #  limpa bucket 
+      # limpa bucket antes do destroy
       - name: Empty S3 bucket (fallback)
         if: ${{ github.event.inputs.action == 'destroy' }}
         run: |
@@ -56,4 +64,3 @@ jobs:
       - name: Terraform Destroy
         if: ${{ github.event.inputs.action == 'destroy' }}
         run: terraform destroy -auto-approve -refresh=false -var-file="envs/dev.tfvars"
-        working-directory: infra
