@@ -2,7 +2,7 @@
 
 # ---------------- S3 ----------------
 resource "aws_s3_bucket" "bucket" {
-  bucket = "projeto-processamento-arquivos"
+  bucket        = "projeto-processamento-arquivos"
   force_destroy = true
 }
 
@@ -23,7 +23,7 @@ resource "aws_dynamodb_table" "tabela" {
   }
 }
 
-# ---------------- IAM Lambda ----------------
+# ---------------- IAM LAMBDA ----------------
 resource "aws_iam_role" "lambda_role" {
   name = "lambda-role-csv"
 
@@ -31,7 +31,9 @@ resource "aws_iam_role" "lambda_role" {
     Version = "2012-10-17",
     Statement = [{
       Effect = "Allow",
-      Principal = { Service = "lambda.amazonaws.com" },
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      },
       Action = "sts:AssumeRole"
     }]
   })
@@ -52,14 +54,14 @@ resource "aws_iam_role_policy_attachment" "lambda_dynamo" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
 }
 
-# ---------------- ZIP Lambda ----------------
+# ---------------- ZIP LAMBDA ----------------
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../lambda"
   output_path = "${path.module}/lambda.zip"
 }
 
-# ---------------- Lambda ----------------
+# ---------------- LAMBDA ----------------
 resource "aws_lambda_function" "lambda" {
   function_name = "lambda-processar-csv"
   role          = aws_iam_role.lambda_role.arn
@@ -70,7 +72,7 @@ resource "aws_lambda_function" "lambda" {
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 }
 
-# ---------------- IAM Step Function ----------------
+# ---------------- IAM STEP FUNCTION ----------------
 resource "aws_iam_role" "step_role" {
   name = "step-role-csv"
 
@@ -78,13 +80,14 @@ resource "aws_iam_role" "step_role" {
     Version = "2012-10-17",
     Statement = [{
       Effect = "Allow",
-      Principal = { Service = "states.amazonaws.com" },
+      Principal = {
+        Service = "states.amazonaws.com"
+      },
       Action = "sts:AssumeRole"
     }]
   })
 }
 
-# Permissão Step → Lambda
 resource "aws_iam_role_policy" "step_lambda_policy" {
   role = aws_iam_role.step_role.id
 
@@ -98,7 +101,7 @@ resource "aws_iam_role_policy" "step_lambda_policy" {
   })
 }
 
-# ---------------- Step Function ----------------
+# ---------------- STEP FUNCTION ----------------
 resource "aws_sfn_state_machine" "step" {
   name     = "FluxoCSV"
   role_arn = aws_iam_role.step_role.arn
@@ -136,18 +139,42 @@ resource "aws_sfn_state_machine" "step" {
   })
 }
 
-# ---------------- EventBridge ----------------
+# ---------------- IAM EVENTBRIDGE ----------------
+resource "aws_iam_role" "eventbridge_role" {
+  name = "eventbridge-step-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Principal = {
+        Service = "events.amazonaws.com"
+      },
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "eventbridge_policy" {
+  role = aws_iam_role.eventbridge_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Action = "states:StartExecution",
+      Resource = aws_sfn_state_machine.step.arn
+    }]
+  })
+}
+
+# ---------------- EVENTBRIDGE ----------------
 resource "aws_cloudwatch_event_rule" "s3_event" {
   name = "regra-upload-s3-stepfunction"
 
   event_pattern = jsonencode({
     source      = ["aws.s3"],
-    detail-type = ["Object Created"],
-    detail = {
-      bucket = {
-        name = [aws_s3_bucket.bucket.bucket]
-      }
-    }
+    "detail-type" = ["Object Created"]
   })
 }
 
@@ -155,5 +182,5 @@ resource "aws_cloudwatch_event_target" "step_target" {
   rule      = aws_cloudwatch_event_rule.s3_event.name
   target_id = "StepFunction"
   arn       = aws_sfn_state_machine.step.arn
-  role_arn  = aws_iam_role.step_role.arn
+  role_arn  = aws_iam_role.eventbridge_role.arn
 }
