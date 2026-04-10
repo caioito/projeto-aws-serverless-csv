@@ -1,6 +1,4 @@
-provider "aws" {
-  region = "us-east-1"
-}
+
 
 # ---------------- S3 ----------------
 resource "aws_s3_bucket" "bucket" {
