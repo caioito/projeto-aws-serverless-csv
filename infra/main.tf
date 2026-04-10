@@ -3,13 +3,7 @@
 # ---------------- S3 ----------------
 resource "aws_s3_bucket" "bucket" {
   bucket = "projeto-processamento-arquivos"
-
   force_destroy = true
-
-  depends_on = [
-    aws_cloudwatch_event_rule.s3_event,
-    aws_cloudwatch_event_target.step_target
-  ]
 }
 
 resource "aws_s3_bucket_notification" "eventbridge" {
@@ -90,7 +84,7 @@ resource "aws_iam_role" "step_role" {
   })
 }
 
-# Permissão para Step chamar Lambda
+# Permissão Step → Lambda
 resource "aws_iam_role_policy" "step_lambda_policy" {
   role = aws_iam_role.step_role.id
 
@@ -100,20 +94,6 @@ resource "aws_iam_role_policy" "step_lambda_policy" {
       Effect = "Allow",
       Action = "lambda:InvokeFunction",
       Resource = aws_lambda_function.lambda.arn
-    }]
-  })
-}
-
-# Permissão EventBridge iniciar Step Function
-resource "aws_iam_role_policy" "eventbridge_policy" {
-  role = aws_iam_role.step_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect = "Allow",
-      Action = "states:StartExecution",
-      Resource = aws_sfn_state_machine.step.arn
     }]
   })
 }
