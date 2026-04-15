@@ -47,6 +47,17 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Run Tests
+        run: |
+          pip install -r tests/requirements.txt
+          pytest tests/ -v
+        working-directory: .     
+
       - name: Terraform Plan
         if: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == '' }}
         run: terraform plan -var-file="envs/dev.tfvars"
