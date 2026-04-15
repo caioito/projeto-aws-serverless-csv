@@ -2,3 +2,6 @@
 *.tfstate
 *.tfstate.backup
 lambda.zip
+.env
+__pycache__/
+venv/
