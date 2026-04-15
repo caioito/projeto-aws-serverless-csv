@@ -11,7 +11,6 @@ tabela = dynamodb.Table('ControleProcessamentoV2')
 def lambda_handler(event, context):
     print("Evento recebido:", event)
 
-    
     if "detail" in event:
         bucket = event["detail"]["bucket"]["name"]
         arquivo = event["detail"]["object"]["key"]
@@ -33,14 +32,20 @@ def lambda_handler(event, context):
 
     for linha in reader:
         try:
+            nome_produto = linha.get('nomeProduto', '').strip()
+
             
             if (
                 not linha['idRegistro'] or
-                not linha['nomeProduto'] or not linha['nomeProduto'].strip() or
+                not nome_produto or
                 not linha['satisfacaoCliente'] or
                 not linha['quantidade']
             ):
                 raise ValueError("Campos obrigatórios não preenchidos")
+
+            
+            if any(char.isdigit() for char in nome_produto):
+                raise ValueError("Nome do produto não pode conter números")
 
             id_registro = int(linha['idRegistro'])
             satisfacao = int(linha['satisfacaoCliente'])
@@ -52,11 +57,10 @@ def lambda_handler(event, context):
             if quantidade <= 0:
                 raise ValueError("Quantidade inválida")
 
-            
             tabela.put_item(
                 Item={
                     "idRegistro": id_registro,
-                    "nomeProduto": linha['nomeProduto'].strip(),
+                    "nomeProduto": nome_produto,
                     "satisfacaoCliente": satisfacao,
                     "quantidade": quantidade,
                     "status": "PROCESSADO",
@@ -69,7 +73,6 @@ def lambda_handler(event, context):
 
             id_raw = str(linha.get('idRegistro', '')).strip()
 
-            
             tabela.put_item(
                 Item={
                     "idRegistro": int(id_raw) if id_raw.isdigit() else 0,
@@ -82,7 +85,6 @@ def lambda_handler(event, context):
                 }
             )
 
-    
     return {
         "status": "PENDENTE_CORRECAO" if houve_erro else "PROCESSADO"
     }
