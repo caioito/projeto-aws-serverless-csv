@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+
   workflow_dispatch:
     inputs:
       action:
@@ -33,7 +34,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # 🧹 evita bug de cache
       - name: Clean Terraform
         run: rm -rf .terraform
 
@@ -50,13 +50,13 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Run Tests
         run: |
           pip install -r tests/requirements.txt
           pytest tests/ -v
-        working-directory: .     
+        working-directory: .
 
       - name: Terraform Plan
         if: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == '' }}
@@ -66,7 +66,28 @@ jobs:
         if: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == '' }}
         run: terraform apply -auto-approve -var-file="envs/dev.tfvars"
 
-      # limpa bucket antes do destroy
+      
+      - name: Validar infraestrutura AWS
+        if: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == '' }}
+        working-directory: .
+        run: |
+          echo "Validando S3..."
+          aws s3api head-bucket --bucket projeto-processamento-arquivos
+
+          echo "Validando Lambda..."
+          aws lambda get-function --function-name lambda-processar-csv
+
+          echo "Validando DynamoDB..."
+          aws dynamodb describe-table --table-name ControleProcessamentoV2
+
+          echo "Validando Step Function..."
+          aws stepfunctions list-state-machines
+
+          echo "Validando EventBridge..."
+          aws events describe-rule --name regra-upload-s3-stepfunction
+
+          echo "Infraestrutura validada com sucesso"
+
       - name: Empty S3 bucket (fallback)
         if: ${{ github.event.inputs.action == 'destroy' }}
         run: |
