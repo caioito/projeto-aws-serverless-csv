@@ -4,7 +4,6 @@ import json
 import logging
 from botocore.exceptions import ClientError
 
-# Configurar logger
 logger = logging.getLogger(__name__)
 
 # ---------------- CONSTANTES ----------------
@@ -12,6 +11,7 @@ AWS_REGION = "us-east-1"
 BUCKET_NAME = "projeto-processamento-arquivos"
 TABLE_NAME = "ControleProcessamentoV2"
 LAMBDA_NAME = "lambda-processar-csv"
+LAMBDA_TIMEOUT_EXPECTED = 3
 STATE_MACHINE_NAME = "FluxoCSV"
 EVENT_RULE_NAME = "regra-upload-s3-stepfunction"
 
@@ -66,11 +66,10 @@ def dynamodb_response(dynamodb_client):
 @pytest.fixture(scope="module")
 def state_machine_response(sfn_client):
     machines = sfn_client.list_state_machines()["stateMachines"]
-    machine = next(sm for sm in machines if sm["name"] == STATE_MACHINE_NAME)
+    machine = next((sm for sm in machines if sm["name"] == STATE_MACHINE_NAME), None)
+    assert machine is not None, f"State machine '{STATE_MACHINE_NAME}' não encontrada"
 
-    response = sfn_client.describe_state_machine(
-        stateMachineArn=machine["stateMachineArn"]
-    )
+    response = sfn_client.describe_state_machine(stateMachineArn=machine["stateMachineArn"])
     response["definition_json"] = json.loads(response["definition"])
     return response
 
@@ -86,19 +85,36 @@ class TestS3Bucket:
     def test_bucket_exists(self, s3_client):
         response = s3_client.list_buckets()
         buckets = [bucket["Name"] for bucket in response["Buckets"]]
-
         assert BUCKET_NAME in buckets
 
     def test_bucket_eventbridge_enabled(self, s3_client):
-        response = s3_client.get_bucket_notification_configuration(Bucket=BUCKET_NAME)
+        logger.info(f"Verificando configuração EventBridge do bucket: {BUCKET_NAME}")
+    
+        try:
+            response = s3_client.get_bucket_notification_configuration(Bucket=BUCKET_NAME)
+            
+            has_eventbridge = "EventBridgeConfiguration" in response
+            
+            logger.debug(f"Resposta completa: {response}")
+            logger.debug(f"EventBridge presente: {has_eventbridge}")
+            
+            assert has_eventbridge, \
+                f"EventBridge não está habilitado no bucket {BUCKET_NAME}. " \
+                f"Configuração atual: {list(response.keys())}"
+            
+            logger.info(f"✓ EventBridge habilitado no bucket {BUCKET_NAME}")
+            
+        except ClientError as e:
+            logger.error(f"Erro ao verificar configuração EventBridge: {e}")
+            pytest.fail(f"Falha ao acessar bucket {BUCKET_NAME}: {e}")
 
-        assert "EventBridgeConfiguration" in response
 
     def test_bucket_region(self, s3_client, aws_region):
         response = s3_client.get_bucket_location(Bucket=BUCKET_NAME)
-        location = response["LocationConstraint"] or "us-east-1"
-
-        assert location == aws_region
+        location = response.get("LocationConstraint")
+        if location is None:
+            location = "us-east-1"
+        assert location == aws_region, f"Região esperada: {aws_region}, atual: {location}"
 
 
 # ---------------- TESTES DYNAMODB ----------------
@@ -109,16 +125,14 @@ class TestDynamoDB:
 
     def test_table_configuration(self, dynamodb_response):
         table = dynamodb_response["Table"]
-
         assert table["BillingModeSummary"]["BillingMode"] == "PAY_PER_REQUEST"
         assert table["KeySchema"][0]["AttributeName"] == "idRegistro"
         assert table["KeySchema"][0]["KeyType"] == "HASH"
 
     def test_table_attribute_type(self, dynamodb_response):
         attributes = dynamodb_response["Table"]["AttributeDefinitions"]
-
-        id_attr = next(attr for attr in attributes if attr["AttributeName"] == "idRegistro")
-
+        id_attr = next((attr for attr in attributes if attr["AttributeName"] == "idRegistro"), None)
+        assert id_attr is not None, "Atributo 'idRegistro' não encontrado na tabela"
         assert id_attr["AttributeType"] == "N"
 
     def test_table_status(self, dynamodb_response):
@@ -143,7 +157,7 @@ class TestLambdaFunction:
 
     def test_lambda_timeout(self, lambda_response):
         timeout = lambda_response["Configuration"]["Timeout"]
-        assert timeout >= 3
+        assert timeout == LAMBDA_TIMEOUT_EXPECTED, f"Timeout esperado: {LAMBDA_TIMEOUT_EXPECTED}s, atual: {timeout}s"
 
 
 # ---------------- TESTES IAM ----------------
@@ -156,7 +170,6 @@ class TestIAMRoles:
     def test_lambda_role_policies(self, iam_client):
         response = iam_client.list_attached_role_policies(RoleName="lambda-role-csv")
         policies = [p["PolicyName"] for p in response["AttachedPolicies"]]
-
         assert "AWSLambdaBasicExecutionRole" in policies
         assert "AmazonS3FullAccess" in policies
         assert "AmazonDynamoDBFullAccess" in policies
@@ -181,7 +194,6 @@ class TestStepFunction:
 
     def test_state_machine_definition(self, state_machine_response):
         definition = state_machine_response["definition_json"]
-
         assert definition["StartAt"] == "ProcessarArquivo"
         assert "ProcessarArquivo" in definition["States"]
         assert "VerificarStatus" in definition["States"]
@@ -191,7 +203,6 @@ class TestStepFunction:
     def test_state_machine_has_lambda_resource(self, state_machine_response, lambda_response):
         lambda_arn = lambda_response["Configuration"]["FunctionArn"]
         step_lambda_arn = state_machine_response["definition_json"]["States"]["ProcessarArquivo"]["Resource"]
-
         assert step_lambda_arn == lambda_arn
 
 
@@ -203,9 +214,8 @@ class TestEventBridge:
 
     def test_event_rule_pattern(self, event_rule_response):
         pattern = json.loads(event_rule_response["EventPattern"])
-
-        assert "aws.s3" in pattern["source"]
-        assert "Object Created" in pattern["detail-type"]
+        assert pattern["source"] == ["aws.s3"], f"Source inesperado: {pattern['source']}"
+        assert pattern["detail-type"] == ["Object Created"], f"detail-type inesperado: {pattern['detail-type']}"
 
     def test_event_rule_state(self, event_rule_response):
         assert event_rule_response["State"] == "ENABLED"
@@ -213,7 +223,6 @@ class TestEventBridge:
     def test_event_rule_target(self, events_client, state_machine_response):
         response = events_client.list_targets_by_rule(Rule=EVENT_RULE_NAME)
         targets = response["Targets"]
-
         assert len(targets) > 0
         assert targets[0]["Arn"] == state_machine_response["stateMachineArn"]
 
@@ -224,10 +233,12 @@ class TestIntegration:
     def test_complete_workflow_resources(self, s3_client, lambda_response,
                                          dynamodb_response, state_machine_response,
                                          event_rule_response):
-
-        s3_client.head_bucket(Bucket=BUCKET_NAME)
-
+        try:
+            s3_client.head_bucket(Bucket=BUCKET_NAME)
+        except ClientError as e:
+            pytest.fail(f"Bucket '{BUCKET_NAME}' inacessível: {e}")
         assert lambda_response["Configuration"]["FunctionName"] == LAMBDA_NAME
         assert dynamodb_response["Table"]["TableName"] == TABLE_NAME
         assert state_machine_response["name"] == STATE_MACHINE_NAME
         assert event_rule_response["Name"] == EVENT_RULE_NAME
+ 
