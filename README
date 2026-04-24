@@ -5,9 +5,7 @@ Este projeto implementa uma arquitetura serverless na AWS para processamento aut
 
 ## 🧩 Arquitetura
 
-<p align="center">
-  <img src="docs/Arquitetura.png" alt="Arquitetura AWS Serverless" width="1000"/>
-</p>
+![Arquitetura AWS Serverless](docs/Arquitetura.png)
 
 S3 → EventBridge → Step Functions → Lambda → DynamoDB
 
@@ -44,3 +42,44 @@ Executar localmente:
 ```bash
 pytest tests/test_lambda.py -v
 pytest tests/test_infra.py -v
+```
+
+## 🚀 Deploy
+
+Para aplicar a infraestrutura:
+
+```bash
+cd infra
+terraform init
+terraform plan
+terraform apply
+```
+
+Para destruir a infraestrutura:
+
+```bash
+cd infra
+terraform destroy
+```
+
+## 📁 Estrutura do projeto
+
+```bash
+.
+├── .github/
+│   └── workflows/
+│       └── terraform.yml
+├── docs/
+│   └── Arquitetura.png
+├── infra/
+├── lambda/
+│   └── lambda_function.py
+├── tests/
+│   ├── test_lambda.py
+│   └── test_infra.py
+├── README.md
+```
+
+## ✅ Objetivo
+
+Automatizar o processamento de arquivos CSV na AWS utilizando serviços serverless com monitoramento, validação e persistência dos dados.
