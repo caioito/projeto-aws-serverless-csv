@@ -52,10 +52,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Run Tests
+      - name: Run Unit Tests
         run: |
           pip install -r tests/requirements.txt
-          pytest tests/ -v
+          pytest tests/test_lambda.py -v
         working-directory: .
 
       - name: Terraform Plan
@@ -66,27 +66,13 @@ jobs:
         if: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == '' }}
         run: terraform apply -auto-approve -var-file="envs/dev.tfvars"
 
-      
-      - name: Validar infraestrutura AWS
+      - name: Run Infra Tests
         if: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == '' }}
-        working-directory: .
         run: |
-          echo "Validando S3..."
-          aws s3api head-bucket --bucket projeto-processamento-arquivos
-
-          echo "Validando Lambda..."
-          aws lambda get-function --function-name lambda-processar-csv
-
-          echo "Validando DynamoDB..."
-          aws dynamodb describe-table --table-name ControleProcessamentoV2
-
-          echo "Validando Step Function..."
-          aws stepfunctions list-state-machines
-
-          echo "Validando EventBridge..."
-          aws events describe-rule --name regra-upload-s3-stepfunction
-
+          pip install -r tests/requirements.txt
+          pytest tests/test_infra.py -v
           echo "Infraestrutura validada com sucesso"
+        working-directory: .
 
       - name: Empty S3 bucket (fallback)
         if: ${{ github.event.inputs.action == 'destroy' }}
