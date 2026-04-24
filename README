@@ -5,6 +5,10 @@ Este projeto implementa uma arquitetura serverless na AWS para processamento aut
 
 ## 🧩 Arquitetura
 
+<p align="center">
+  <img src="docs/Arquitetura.png" alt="Arquitetura AWS Serverless" width="1000"/>
+</p>
+
 S3 → EventBridge → Step Functions → Lambda → DynamoDB
 
 ## 🔧 Tecnologias utilizadas
@@ -15,19 +19,28 @@ S3 → EventBridge → Step Functions → Lambda → DynamoDB
 - AWS Lambda (Python)
 - AWS DynamoDB
 - Terraform
+- Pytest
+- GitHub Actions
 
 ## ⚙️ Funcionamento
 
-1. Upload de um arquivo CSV no S3
-2. EventBridge captura o evento
-3. Step Function inicia o fluxo
-4. Lambda processa o CSV
-5. Dados válidos são armazenados no DynamoDB
-6. Dados inválidos são marcados como PENDENTE_CORRECAO
+1. Upload de um arquivo CSV no bucket S3  
+2. EventBridge captura o evento de upload  
+3. Step Functions inicia o fluxo de processamento  
+4. Lambda valida e processa o arquivo CSV  
+5. Dados válidos são armazenados no DynamoDB  
+6. Dados inválidos são marcados como `PENDENTE_CORRECAO`
 
-## 📁 Estrutura
-.
-├── main.tf
-├── lambda/
-│ └── lambda_function.py
-├── README.md
+## 🧪 Testes
+
+O projeto possui:
+
+- Testes unitários da função Lambda  
+- Testes de infraestrutura AWS  
+- Validação automática no pipeline CI/CD  
+
+Executar localmente:
+
+```bash
+pytest tests/test_lambda.py -v
+pytest tests/test_infra.py -v
